@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1.0">
+    <title>OAU CBT Simulator - Secure Mode</title>
+    <style>
+        :root { --primary: #e11d48; --bg: #0f172a; --card: #1e293b; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: var(--bg); color: white; display: flex; justify-content: center; padding: 20px; margin: 0; user-select: none; }
+        .container { width: 95%; max-width: 900px; background: var(--card); padding: 25px; border-radius: 12px; box-shadow: 0 10px 15px rgba(0,0,0,0.5); }
+        
+        /* Setup Screen */
+        #setupScreen { text-align: center; animation: fadeIn 0.5s; }
+        .input-group { margin: 20px 0; text-align: left; max-width: 320px; margin-left: auto; margin-right: auto; }
+        label { font-size: 0.9rem; color: #94a3b8; }
+        input { width: 100%; padding: 12px; border-radius: 6px; border: 2px solid #334155; margin-top: 8px; font-size: 16px; background: #0f172a; color: white; outline: none; }
+        input:focus { border-color: var(--primary); }
+        .limit-note { font-size: 0.75rem; color: #e11d48; margin-top: 4px; display: block; }
+        
+        /* Exam Elements */
+        #examArea { display: none; }
+        h2 { text-align: center; color: var(--primary); margin-top: 0; }
+        #timer { text-align: center; font-size: 26px; margin: 15px; color: #22c55e; font-weight: bold; font-family: monospace; }
+        
+        .option { display: block; background: var(--bg); margin: 10px 0; padding: 12px 15px; border-radius: 8px; cursor: pointer; border: 2px solid transparent; transition: 0.2s; }
+        .selected { background: #334155; border-color: var(--primary); }
+        .correct { background: #064e3b !important; border-color: #22c55e !important; color: #adfaad; }
+        .wrong { background: #7f1d1d !important; border-color: #ef4444 !important; color: #fca5a5; }
+
+        .palette { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; margin: 20px 0; max-height: 150px; overflow-y: auto; padding: 5px; }
+        .palette button { padding: 8px 2px; border: none; cursor: pointer; background: #475569; color: white; border-radius: 4px; }
+        .palette-correct { background: #22c55e !important; }
+        .palette-wrong { background: #e11d48 !important; }
+        .current { background: var(--primary) !important; outline: 2px solid white; }
+
+        .controls { display: flex; gap: 10px; margin-top: 20px; }
+        button.btn { flex: 1; padding: 15px; font-weight: bold; cursor: pointer; border: none; border-radius: 8px; color: white; text-transform: uppercase; }
+        .btn-start { background: #22c55e; width: 100%; }
+        .prev { background: #64748b; }
+        .next { background: #2563eb; }
+        .submit { background: var(--primary); }
+        
+        #resultBanner { display: none; text-align: center; background: #334155; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 2px solid #2563eb; }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    </style>
+</head>
+<body oncontextmenu="return false;">
+
+<div class="container">
+    <div id="setupScreen">
+        <h2>EXAM CONFIGURATION</h2>
+        <p>Pool Size: <span id="poolSize">0</span> Questions</p>
+        
+        <div class="input-group">
+            <label>Number of Questions:</label>
+            <input type="number" id="userQty" value="40" min="1" max="100">
+            <span class="limit-note">* Maximum allowed: 100</span>
+        </div>
+        
+        <div class="input-group">
+            <label>Time Limit (Minutes):</label>
+            <input type="number" id="userTime" value="60" min="1" max="60">
+            <span class="limit-note">* Maximum allowed: 60</span>
+        </div>
+        
+        <button class="btn btn-start" onclick="startExam()">START EXAMINATION</button>
+    </div>
+
+    <div id="examArea">
+        <h2 id="examTitle">OAU STA 121 CBT</h2>
+        <div id="resultBanner">
+            <h1 id="scoreDisplay"></h1>
+            <p id="percentDisplay"></p>
+            <button class="btn next" onclick="location.reload()">RETAKE NEW EXAM</button>
+        </div>
+        <div id="timer">60:00</div>
+        <div id="palette" class="palette"></div>
+        <div id="questionBox"></div>
+        <div class="controls">
+            <button class="btn prev" onclick="prevQ()">PREVIOUS</button>
+            <button class="btn next" onclick="nextQ()">NEXT</button>
+            <button id="submitBtn" class="btn submit" onclick="submitExam()">SUBMIT</button>
+        </div>
+    </div>
+</div>
+
+<script> 
+const MAX_QS = 100;
+const MAX_TIME = 60;
+
+const QUESTION_POOL = [
+{ q: "What is the main reason for using sampling instead of a census?", o: ["Sampling is more accurate", "Sampling is always quicker and more cost-effective", "Populations are always too large to study entirely", "Sampling provides more detailed data"], a: "Sampling is always quicker and more cost-effective" },
+{ q: "What does the term 'sampling error' refer to?", o: ["Mistakes made while collecting data", "Errors due to the sample not being an exact representation of the population", "Errors due to non-response", "Bias introduced by the researcher"], a: "Errors due to the sample not being an exact representation of the population" },
+{ q: "Multi-stage sampling is:", o: ["Sampling in several stages using different methods", "Sampling the entire population in stages", "Using quota sampling in multiple stages", "Randomly selecting individuals from each stage"], a: "Sampling in several stages using different methods" },
+{ q: "Which of the following is true about a census?", o: ["It is more cost-effective than sampling", "It is less time-consuming than sampling", "It involves studying a small subset of the population", "It includes every member of the population"], a: "It includes every member of the population" },
+{ q: "What is the difference between a sample and a population?", o: ["A sample is always larger than a population", "A population includes all items under study, while a sample is a part of the population", "A sample and a population are always the same", "A population is a method of data collection"], a: "A population includes all items under study, while a sample is a part of the population" },
+{ q: "What is the primary purpose of sampling in statistics?", o: ["To analyze all data from a population", "To make inferences about a population based on a sample", "To count the number of items in a population", "To estimate the size of a population"], a: "To make inferences about a population based on a sample" },
+{ q: "Which sampling method is based on the judgment of the researcher?", o: ["Simple Random Sampling", "Stratified Sampling", "Judgment/Purposive Sampling", "Cluster Sampling"], a: "Judgment/Purposive Sampling" },
+{ q: "Quota sampling involves:", o: ["Selecting individuals based on pre-set quotas reflecting population characteristics", "Randomly selecting individuals", "Choosing individuals based on convenience", "Sampling every nth individual"], a: "Selecting individuals based on pre-set quotas reflecting population characteristics" },
+{ q: "What does a census involve?", o: ["Selecting a sample from a population", "Studying a subset of the population", "Complete enumeration of every individual in a population", "Using a random method to select a sample"], a: "Complete enumeration of every individual in a population" },
+{ q: "What is a population in statistics?", o: ["A sample of items or subjects", "A random subset of a group", "The entire group of items, units, or subjects under study", "A method of collecting data"], a: "The entire group of items, units, or subjects under study" },
+{ q: "Cluster sampling is characterized by:", o: ["Sampling every member of a selected cluster", "Selecting random individuals from each cluster", "Dividing the population into clusters and randomly selecting entire clusters", "Sampling based on specific quotas"], a: "Dividing the population into clusters and randomly selecting entire clusters" },
+{ q: "What is the main advantage of random sampling methods over non-random methods?", o: ["They require less knowledge of the population", "They are quicker to perform", "They provide more accurate and representative results", "They are easier to implement"], a: "They provide more accurate and representative results" },
+{ q: "In systematic sampling:", o: ["Items are selected based on a random starting point and a fixed interval", "Items are selected purely at random", "Clusters are selected, not individuals", "Individuals are selected based on judgment"], a: "Items are selected based on a random starting point and a fixed interval" },
+{ q: "The purpose of stratified sampling is to:", o: ["Reduce the cost of sampling", "Ensure that specific groups within a population are adequately represented", "Randomly select individuals from the population", "Sample individuals at fixed intervals"], a: "Ensure that specific groups within a population are adequately represented" },
+{ q: "Stratified sampling involves:", o: ["Dividing the population into non-overlapping groups and sampling all of them", "Selecting samples based on convenience", "Choosing a sample by dividing the population into strata and sampling each stratum", "Picking samples based on a fixed interval"], a: "Choosing a sample by dividing the population into strata and sampling each stratum" },
+{ q: "Which of the following is an example of a non-sampling error?", o: ["Bias in question wording", "Variability due to random selection of a sample", "Errors in data analysis", "Undercoverage of a sample"], a: "Bias in question wording" },
+{ q: "What is a simple random sample?", o: ["A sample where each member is chosen based on specific characteristics", "A sample where each member of the population has an equal chance of being selected", "A sample taken at regular intervals", "A sample where clusters are chosen randomly"], a: "A sample where each member of the population has an equal chance of being selected" },
+{ q: "Convenience sampling involves:", o: ["Choosing individuals who are easiest to reach", "Randomly selecting individuals from each group", "Using a computer to randomly select a sample", "Sampling in stages"], a: "Choosing individuals who are easiest to reach" },
+{ q: "Which of the following is a disadvantage of non-random sampling methods?", o: ["They are more costly than random methods", "They may not be representative of the entire population", "They always involve larger samples", "They require more time than random methods"], a: "They may not be representative of the entire population" },
+{ q: "In systematic sampling, if the population size is 1000 and you need a sample size of 100, the sampling interval would be:", o: ["10", "100", "1000", "50"], a: "10" },
+
+{ q: "Standard error is:", o: ["The same as the population standard deviation", "The standard deviation of the sampling distribution", "Independent of the sample size", "Only applicable to large samples"], a: "The standard deviation of the sampling distribution" },
+{ q: "What does the sampling distribution of a statistic represent?", o: ["The distribution of values in the population", "The probability of selecting a particular sample", "The distribution of a statistic over many samples", "The average value of the population"], a: "The distribution of a statistic over many samples" },
+{ q: "If a population is normally distributed, then the sampling distribution of the mean will be:", o: ["Positively skewed", "Negatively skewed", "Normally distributed", "Uniformly distributed"], a: "Normally distributed" },
+{ q: "The standard error of the mean provides an estimate of:", o: ["The average distance of the sample mean from the population mean", "The variability of the population", "The probability of selecting a particular sample", "The precision of the population mean"], a: "The average distance of the sample mean from the population mean" },
+{ q: "Which of the following is true for the standard error of the sample proportion?", o: ["It increases as the sample size increases", "It is independent of the population proportion", "It decreases as the sample size increases", "It is the same as the population proportion"], a: "It decreases as the sample size increases" },
+{ q: "The Central Limit Theorem is significant because it:", o: ["Allows us to ignore the sample size", "States that the sampling distribution will be normally distributed regardless of the population distribution", "Applies only to large populations", "Determines the mean of the population"], a: "States that the sampling distribution will be normally distributed regardless of the population distribution" },
+{ q: "The standard error of the mean is affected by all the following except:", o: ["The sample mean", "The population standard deviation", "The sample size", "The method of sampling"], a: "The sample mean" },
+{ q: "Which scenario best demonstrates the law of large numbers?", o: ["A die is rolled 10 times and the average is calculated", "A coin is flipped 1000 times and the proportion of heads is close to 0.5", "A sample mean of 100 observations is calculated", "The population mean is calculated from a large dataset"], a: "A coin is flipped 1000 times and the proportion of heads is close to 0.5" },
+{ q: "What does the Central Limit Theorem imply for a large sample size?", o: ["The sample mean will equal the population mean", "The sampling distribution will be skewed", "The sampling distribution will be normally distributed", "The standard error will equal the population standard deviation"], a: "The sampling distribution will be normally distributed" },
+{ q: "Which of the following factors does not affect the shape of the sampling distribution of the mean?", o: ["The population standard deviation", "The sample size", "The population mean", "The method of sample selection"], a: "The population mean" },
+
+{ q: "In a sampling distribution of the sample mean, if the sample size is 30 or greater, the distribution is usually:", o: ["Positively skewed", "Negatively skewed", "Normal", "Uniform"], a: "Normal" },
+{ q: "The Central Limit Theorem is important because it:", o: ["Calculates the mean of a sample", "Describes the shape of the sampling distribution", "Determines the variance of the population", "Is only valid for normal distributions"], a: "Describes the shape of the sampling distribution" },
+{ q: "In a normal distribution, which of the following is true about the mean and the median?", o: ["The mean is always larger", "The median is always larger", "The mean and median are equal", "The relationship depends on the skewness"], a: "The mean and median are equal" },
+{ q: "As the sample size increases, the standard error of the mean:", o: ["Increases", "Decreases", "Stays the same", "Becomes zero"], a: "Decreases" },
+{ q: "If the population is not normally distributed, the sample size needed for the Central Limit Theorem to hold is:", o: ["Less than 15", "Between 15 and 30", "More than 30", "Exactly 30"], a: "More than 30" },
+{ q: "The standard error of the proportion is the:", o: ["Standard deviation divided by the square root of the population size", "Standard deviation divided by the square root of the sample size", "Variance divided by the sample size", "Mean divided by the sample size"], a: "Standard deviation divided by the square root of the sample size" },
+{ q: "What is the mean of the sampling distribution of the sample mean equal to?", o: ["The sample mean", "The median of the population", "The population mean", "The mode of the population"], a: "The population mean" },
+{ q: "The shape of the sampling distribution becomes more normal as:", o: ["The population size decreases", "The sample size decreases", "The sample size increases", "The standard deviation of the population decreases"], a: "The sample size increases" },
+{ q: "If a sample size is increased from 30 to 60, the standard error of the mean will:", o: ["Double", "Halve", "Increase by a factor of square root of 2", "Decrease by a factor of square root of 2"], a: "Decrease by a factor of square root of 2" },
+{ q: "What happens to the sampling distribution of the mean as the population variance increases?", o: ["It becomes more skewed", "It becomes narrower", "It becomes wider", "It stays the same"], a: "It becomes wider" },
+
+
+{ q: "What does the sample proportion represent in a statistical study?", o: ["The difference between two sample means", "The ratio of the number of successes to the total sample size", "The total number of individuals in a population", "The variance of the population"], a: "The ratio of the number of successes to the total sample size" },
+{ q: "Which of the following conditions invalidate the normal approximation for the sampling distribution of sample proportion?", o: ["Large sample sizes", "np and n(1−p) both less than 5", "Population proportion equal to 0.5", "Equal sample sizes for comparing two proportions"], a: "np and n(1−p) both less than 5" },
+{ q: "In the context of sample proportions, 'success' refers to:", o: ["Any positive outcome", "A specific outcome of interest in the study", "The act of completing the study", "A statistically significant result"], a: "A specific outcome of interest in the study" },
+{ q: "The sampling distribution of the sample proportion is centered around:", o: ["The sample mean", "The sample proportion", "The population proportion", "Zero"], a: "The population proportion" },
+{ q: "What does a confidence interval for a sample proportion estimate?", o: ["The mean of the population", "The standard deviation of the population", "The range in which the true population proportion is likely to fall", "The exact value of the population proportion"], a: "The range in which the true population proportion is likely to fall" },
+{ q: "Which of the following is true about the sampling distribution of the difference between two sample proportions?", o: ["It always has a mean of zero", "It is always skewed to the right", "Its standard error decreases as sample sizes increase", "It is centered around the difference between two population means"], a: "Its standard error decreases as sample sizes increase" },
+{ q: "If samples of size 100 from a population where P=0.4 are taken, what is the standard error of the sample proportion?", o: ["0.02", "0.04", "0.06", "0.08"], a: "0.04" },
+{ q: "For a sample proportion, which of the following is not a factor in determining its standard error?", o: ["The number of successes in the sample", "The sample size", "The population proportion", "The number of failures in the sample"], a: "The number of successes in the sample" },
+{ q: "When comparing two sample proportions, which of the following is necessary for the Central Limit Theorem to apply to their difference?", o: ["The samples must be dependent", "Each sample must come from a normally distributed population", "The samples must be of equal size", "The sample sizes must be sufficiently large"], a: "The sample sizes must be sufficiently large" },
+{ q: "If the proportion of students who passed an exam in Class A is 0.75 and in Class B is 0.65, what is the difference in sample proportions?", o: ["0.1", "0.15", "0.75", "0.65"], a: "0.1" },
+{ q: "Which theorem justifies the approximation of the sampling distribution of sample proportion to a normal distribution for large sample sizes?", o: ["Bayes’ Theorem", "Pythagorean Theorem", "Central Limit Theorem", "Theorem of Total Probability"], a: "Central Limit Theorem" },
+{ q: "In hypothesis testing, the sampling distribution of the difference between two sample proportions is used to:", o: ["Determine if the samples come from the same population", "Calculate the p-value", "Estimate the population variance", "Both A and B"], a: "Both A and B" },
+{ q: "The normal approximation for the sampling distribution of the difference of sample proportions assumes:", o: ["The population sizes are equal", "The sample sizes are small", "Independence between the samples", "Dependence between the samples"], a: "Independence between the samples" },
+{ q: "A study comparing the proportion of males and females who prefer online shopping will calculate the:", o: ["Difference in means", "Difference in variances", "Difference in sample proportions", "Total proportion of online shoppers"], a: "Difference in sample proportions" },
+{ q: "Which of the following best describes the purpose of using the sampling distribution of the difference between two sample proportions in hypothesis testing?", o: ["To determine if there is a significant difference between two population proportions", "To calculate the mean of two populations", "To assess the variability within a single sample", "To compare the means of two samples"], a: "To determine if there is a significant difference between two population proportions" },
+{ q: "If the population proportion is 0.5, what is the maximum standard error of the sample proportion for any sample size?", o: ["0.25", "0.5", "0.025", "0.05"], a: "0.5" },
+{ q: "A larger sample size will make the sampling distribution of sample proportion:", o: ["More skewed", "Wider", "Narrower", "Bimodal"], a: "Narrower" },
+{ q: "To estimate the difference in proportions between two groups, researchers should:", o: ["Increase the difference between the two sample sizes", "Use only the Central Limit Theorem", "Ensure both samples are from normally distributed populations", "Consider the standard error of the difference between the sample proportions"], a: "Consider the standard error of the difference between the sample proportions" },
+{ q: "The difference between two sample proportions is used to:", o: ["Measure the variability within each sample", "Compare two population proportions based on samples", "Calculate the overall sample size needed", "Determine the population mean"], a: "Compare two population proportions based on samples" },
+{ q: "What impact does increasing the sample size have on the standard error of the difference between two sample proportions?", o: ["It has no effect", "It increases the standard error", "It decreases the standard error", "It first decreases, then increases the standard error"], a: "It decreases the standard error" },
+
+
+{ q: "In the context of estimation, what does unbiasedness refer to?", o: ["The estimator's average value equals the true population parameter over many samples.", "The estimator always produces the exact population parameter.", "The estimator produces values that are not influenced by sample size.", "The estimator has a margin of error of zero."], a: "The estimator's average value equals the true population parameter over many samples." },
+{ q: "Which is true about the confidence interval for a population proportion?", o: ["It is always symmetric around the sample proportion.", "It widens with an increase in sample size.", "It becomes narrower as the confidence level increases.", "It relies on the normal distribution for large sample sizes."], a: "It relies on the normal distribution for large sample sizes." },
+{ q: "What is the effect of a higher level of confidence (e.g., 99% vs. 95%) on the width of a confidence interval?", o: ["The interval becomes narrower.", "The interval becomes wider.", "The interval remains unchanged.", "The interval becomes less accurate."], a: "The interval becomes wider." },
+{ q: "Which of the following is a correct interpretation of a 95% confidence interval for a population mean?", o: ["We are 95% confident that the sample mean is within the interval.", "95% of the population mean is within the interval.", "We are 95% confident that the interval contains the population mean.", "The mean of all possible samples falls within the interval."], a: "We are 95% confident that the interval contains the population mean." },
+{ q: "What happens to the confidence interval for the mean if the sample variance increases?", o: ["The interval becomes narrower.", "The interval becomes wider.", "The interval remains the same width.", "The interval shifts to the right."], a: "The interval becomes wider." },
+{ q: "What is the purpose of estimating a confidence interval?", o: ["To estimate the range within which the population mean lies with a certain level of confidence", "To calculate the exact value of the population mean", "To determine the sample mean with 100% accuracy", "To prove the hypothesis is true"], a: "To estimate the range within which the population mean lies with a certain level of confidence" },
+{ q: "Which of the following is true about the margin of error in a confidence interval?", o: ["It decreases as the confidence level decreases.", "It increases as the sample size decreases.", "It is unaffected by the variability in the data.", "It decreases as the population size increases."], a: "It increases as the sample size decreases." },
+{ q: "For constructing a confidence interval for the population mean μ when σ is unknown, which distribution is used?", o: ["Normal distribution", "Binomial distribution", "t-distribution", "Chi-square distribution"], a: "t-distribution" },
+{ q: "Which of the following conditions is required for constructing a CI for a population proportion?", o: ["The sample size must be at least 5% of the population.", "np and n(1-p) both greater than or equal to 10.", "The population must be normally distributed.", "The sample proportion must be 0.5."], a: "np and n(1-p) both greater than or equal to 10." },
+{ q: "Which factor does not affect the width of a confidence interval for a population mean?", o: ["Sample size", "Confidence level", "Population size", "Sample standard deviation"], a: "Population size" },
+{ q: "For a given confidence level and sample size, which of the following will result in a narrower CI for a population mean?", o: ["A larger sample standard deviation", "A smaller sample standard deviation", "A larger population size", "None of the above"], a: "A smaller sample standard deviation" },
+{ q: "What does a 95% confidence interval (CI) imply?", o: ["The true population parameter is always within the interval.", "95% of the sample data lies within the interval.", "If the sampling were repeated many times, 95% of the CIs would contain the true population parameter.", "There is a 95% chance that the sample mean is correct."], a: "If the sampling were repeated many times, 95% of the CIs would contain the true population parameter." },
+{ q: "What is the standard error of the mean?", o: ["The standard deviation of the population divided by the square root of the sample size.", "The variance of the sample means.", "The average deviation of the sample means from the population mean.", "The standard deviation of the sample means."], a: "The standard deviation of the population divided by the square root of the sample size." },
+{ q: "How does increasing the sample size affect the margin of error in a CI?", o: ["Increases the margin of error", "Decreases the margin of error", "Has no effect on the margin of error", "Initially decreases then increases the margin of error"], a: "Decreases the margin of error" },
+{ q: "What does the margin of error in a CI represent?", o: ["The maximum likely difference between the sample statistic and the population parameter.", "The error in data collection methods.", "The standard deviation of the sample.", "The level of confidence."], a: "The maximum likely difference between the sample statistic and the population parameter." },
+{ q: "A 95% CI for a population proportion p is (0.40, 0.60). What does this imply?", o: ["The probability that p is 0.50 is 95%.", "There is a 95% probability that the true value of p lies between 0.40 and 0.60.", "95% of the sample proportions will fall between 0.40 and 0.60.", "If we repeat the sampling process, 95% of the time p will lie between 0.40 and 0.60."], a: "If we repeat the sampling process, 95% of the time p will lie between 0.40 and 0.60." },
+
+
+{ q: "The Z-score for a 90% confidence interval is approximately:", o: ["1.28", "1.64", "1.96", "2.33"], a: "1.64" },
+{ q: "If the sample size is increased while keeping the confidence level constant, the confidence interval for the mean will:", o: ["Become wider", "Become narrower", "Remain unchanged", "Become skewed"], a: "Become narrower" },
+{ q: "What assumption is necessary for constructing a CI for a population mean when the population standard deviation is known?", o: ["The sample size must be over 30.", "The data must follow a normal distribution.", "The population standard deviation must be larger than the sample standard deviation.", "The sample must be random."], a: "The sample must be random." },
+{ q: "Which of the following increases the width of a confidence interval?", o: ["Increasing the confidence level", "Decreasing the sample size", "Decreasing the variability in the data", "Both A and B"], a: "Both A and B" },
+
+
+{ q: "For a given effect size and alpha level, what can increase the power of a test?", o: ["Decreasing the sample size", "Increasing the sample size", "Using a one-tailed test instead of a two-tailed test", "Both B and C"], a: "Both B and C" },
+{ q: "In determining sample size for testing a proportion, which formula component does NOT directly impact the calculation?", o: ["The z-score for the desired confidence level", "The estimated proportion of success", "The desired margin of error", "The population mean"], a: "The population mean" },
+{ q: "Which is not a consideration when determining sample size for a proportion?", o: ["Population proportion", "Confidence level", "Margin of error", "Population mean"], a: "Population mean" },
+{ q: "Increasing the sample size in a hypothesis test generally results in:", o: ["A smaller Type I error rate", "A larger Type II error rate", "Increased statistical power", "Decreased statistical power"], a: "Increased statistical power" },
+{ q: "Which factor directly influences the required sample size for estimating a population mean?", o: ["Population size", "Desired confidence level", "The number of variables", "The hypothesis being tested"], a: "Desired confidence level" },
+{ q: "Which test would be most appropriate for comparing the means of two populations?", o: ["Chi-square test", "One-sample t-test", "Two-sample t-test", "ANOVA"], a: "Two-sample t-test" },
+{ q: "What is the primary purpose of determining a sample size before conducting a study?", o: ["To ensure that the study costs are minimized", "To ensure that the study findings are statistically significant", "To comply with regulatory standards", "To match the sample size of previous studies"], a: "To ensure that the study findings are statistically significant" },
+{ q: "A p-value less than 0.05 typically indicates that:", o: ["The null hypothesis can be accepted", "The null hypothesis can be rejected", "The sample size is too small", "The effect size is large"], a: "The null hypothesis can be rejected" },
+{ q: "Which scenario is most likely to use a two-tailed test?", o: ["Testing if a new drug lowers blood pressure more than an existing drug", "Testing if a coin is biased towards heads", "Testing if a class has more than 30 students", "Testing if fertilizer increases plant growth"], a: "Testing if a coin is biased towards heads" },
+{ q: "A z-score in a hypothesis test is used to:", o: ["Determine the sample size", "Calculate the standard deviation", "Assess the standard error of the mean", "Find the probability of observing a test statistic under the null hypothesis"], a: "Find the probability of observing a test statistic under the null hypothesis" },
+{ q: "Which of the following best describes the relationship between confidence intervals and hypothesis testing?", o: ["They are unrelated statistical methods", "They both assess the reliability of sample estimates", "Confidence intervals are used to calculate p-values", "Hypothesis testing is used to determine the width of confidence intervals"], a: "They both assess the reliability of sample estimates" },
+{ q: "What is the null hypothesis in a statistical test?", o: ["The hypothesis that there is a significant effect", "The hypothesis that there is no significant effect", "The hypothesis of the researcher's choosing", "An alternative hypothesis"], a: "The hypothesis that there is no significant effect" },
+{ q: "What role does the standard deviation play in sample size calculation for estimating a mean?", o: ["It has no effect", "A larger standard deviation requires a larger sample size", "A smaller standard deviation requires a larger sample size", "Only affects the type of statistical test to be used"], a: "A larger standard deviation requires a larger sample size" },
+{ q: "In sample size determination, what effect does increasing the margin of error have on the required sample size?", o: ["Increases it", "Decreases it", "No effect", "Doubles it"], a: "Decreases it" },
+{ q: "The power of a hypothesis test is:", o: ["The probability of rejecting the null hypothesis when it is true", "The probability of accepting the null hypothesis when it is false", "The probability of rejecting the null hypothesis when it is false", "The probability of accepting the null hypothesis when it is true"], a: "The probability of rejecting the null hypothesis when it is false" },
+{ q: "The significance level (alpha) is:", o: ["The probability of observing the data if the null hypothesis is true", "The probability of a Type II error", "The threshold for rejecting the null hypothesis", "The measure of effect size"], a: "The threshold for rejecting the null hypothesis" },
+{ q: "In hypothesis testing, a Type I error occurs when:", o: ["The null hypothesis is falsely accepted", "The null hypothesis is falsely rejected", "A test statistic falls within the critical region", "A p-value is greater than the significance level"], a: "The null hypothesis is falsely rejected" },
+{ q: "A one-tailed test is used when:", o: ["The direction of the effect is not specified", "The direction of the effect is specified", "Comparing more than two groups", "The sample size is large"], a: "The direction of the effect is specified" },
+{ q: "What is the primary goal of determining an appropriate sample size in a study?", o: ["Minimize costs", "Maximize the sample size", "Ensure statistical significance of results", "Balance between precision of estimates and practical constraints"], a: "Balance between precision of estimates and practical constraints" },
+{ q: "If a researcher desires a narrower confidence interval, what should they do to the sample size?", o: ["Decrease it", "Increase it", "Sample size has no impact", "Halve it"], a: "Increase it" },
+
+
+{ q: "What is the significance level (alpha) in hypothesis testing?", o: ["The probability of observing a test statistic as extreme as the null", "The probability of making a Type I error", "The threshold for determining significance", "Both B and C"], a: "Both B and C" },
+{ q: "What is the purpose of hypothesis testing?", o: ["To prove a hypothesis beyond a doubt", "To estimate population parameters", "To assess the evidence provided by the sample data", "To calculate sample mean"], a: "To assess the evidence provided by the sample data" },
+{ q: "In the context of hypothesis testing, what does non-rejection of the null hypothesis imply?", o: ["The null hypothesis is true", "There is not enough evidence to support the alternative hypothesis", "The alternative hypothesis is false", "The test has no power"], a: "There is not enough evidence to support the alternative hypothesis" },
+{ q: "Which of the following best describes a null hypothesis?", o: ["A statement that there is no effect", "The hypothesis believed true before the test starts", "The opposite of the alternative hypothesis", "All of the above"], a: "All of the above" },
+{ q: "Which test statistic would you use to compare the means of two independent populations with large samples?", o: ["t-test", "Z-test", "Chi-square test", "F-test"], a: "Z-test" },
+{ q: "When conducting a one-tailed test, when is the null hypothesis rejected?", o: ["If the test statistic falls in either tail", "Only if the test statistic is in the specified direction of the alternative hypothesis", "Only if p-value is greater than alpha", "If the CI includes the null value"], a: "Only if the test statistic is in the specified direction of the alternative hypothesis" },
+{ q: "What does the alternative hypothesis (H1) represent in hypothesis testing?", o: ["The hypothesis that there is no effect", "The hypothesis that the sample data suggests is true", "The hypothesis that is tested directly", "Both B and C"], a: "Both B and C" },
+{ q: "What is a p-value?", o: ["Likelihood of data given the null is true", "Probability of correctly rejecting the null", "Marginal significance level", "Probability of observing results as extreme as actually observed, under the null"], a: "Probability of observing results as extreme as actually observed, under the null" },
+{ q: "In hypothesis testing for the difference between two population means with large samples, which of the following assumptions is NOT required?", o: ["The populations are normally distributed", "The samples are independent", "The population variances are known", "The sample sizes are the same"], a: "The sample sizes are the same" },
+{ q: "For a large sample size, when testing a single population mean, the test statistic is calculated as:", o: ["(Sample mean - Population mean) / (Sample standard deviation / sqrt(n))", "(Sample mean - Population mean) / (Population standard deviation / sqrt(n))", "(Population mean - Sample mean) / (Sample standard deviation / sqrt(n))", "(Population mean - Sample mean) / (Population standard deviation / sqrt(n))"], a: "(Sample mean - Population mean) / (Sample standard deviation / sqrt(n))" },
+{ q: "Which of the following conditions must be met to apply the Z-test for hypothesis testing of a population mean?", o: ["Small sample, known sigma", "Large sample, known sigma", "Small sample, non-normal population", "None of the above"], a: "Large sample, known sigma" },
+{ q: "In hypothesis testing, if the p-value is less than the chosen alpha level, we:", o: ["Fail to reject the null", "Reject the null", "Increase the sample size", "None of the above"], a: "Reject the null" },
+{ q: "When conducting a two-tailed test of a population mean with a large sample, which distribution is used?", o: ["T-distribution", "Chi-square distribution", "Normal distribution", "F-distribution"], a: "Normal distribution" },
+{ q: "In hypothesis testing, what does a Type I error represent?", o: ["Accepting a false null", "Rejecting a true null", "Failing to reject a false null", "Accepting a true alternative"], a: "Rejecting a true null" },
+{ q: "What does the standard error measure in the context of hypothesis testing for a population mean?", o: ["Accuracy of the sample mean", "Variability of the sample mean from sample to sample", "Difference between sample and population mean", "Precision of the population mean"], a: "Variability of the sample mean from sample to sample" },
+{ q: "Which of the following is NOT a step in hypothesis testing?", o: ["Defining the hypotheses", "Deciding on a significance level", "Calculating the sample mean", "Determining the sample size"], a: "Determining the sample size" },
+{ q: "What is the main difference between one-tailed and two-tailed tests?", o: ["The direction in which H1 states a difference", "The calculation of the test statistic", "The interpretation of the p-value", "The significance level used"], a: "The direction in which H1 states a difference" },
+{ q: "Which of the following is true about the power of a hypothesis test?", o: ["Probability of rejecting null when false", "Inversely related to Type II error", "Increases as sample size increases", "All of the above"], a: "All of the above" },
+
+{ q: "Which of the following best describes the Central Limit Theorem and its importance in hypothesis testing?", o: ["Sample mean distribution approaches normal as n increases", "Guarantees sample mean equals population mean", "Describes relationship between sample mean and population median", "Only applicable when population is normal"], a: "It states that as sample size increases, the distribution of the sample means will approach a normal distribution, regardless of the population's distribution" },
+{ q: "A large sample of 400 observations has a sample mean of 120 and a known population standard deviation of 20. To test if the population mean is significantly different from 115, what is the test statistic?", o: ["2.5", "25", "5", "0.25"], a: "5" },
+{ q: "In the context of small samples, what effect does increasing the sample size have on the degrees of freedom for a t-test?", o: ["Decreases the degrees of freedom", "Increases the degrees of freedom", "Has no effect on the degrees of freedom", "Initially increases then decreases the degrees of freedom"], a: "Increases the degrees of freedom" },
+{ q: "What is the primary reason for using the pooled variance in a t-test comparing two small sample means under the assumption of equal variances?", o: ["To ensure the test is non-parametric", "To provide a more accurate estimate of the population variance", "To simplify the calculation of the test statistic", "To adjust for differences in sample size"], a: "To provide a more accurate estimate of the population variance" },
+{ q: "How does the shape of the t-distribution compare to the normal distribution as sample size increases?", o: ["It becomes more skewed", "It becomes less peaked", "It approaches the shape of the normal distribution", "It remains unchanged regardless of sample size"], a: "It approaches the shape of the normal distribution" },
+
+{ q: "What is a critical assumption for the t-test concerning the sample data?", o: ["The data must be ordinal", "The data must be binomially distributed", "The data must come from a normally distributed population", "The sample size must be larger than 50"], a: "The data must come from a normally distributed population" },
+{ q: "When is a one-sample t-test used?", o: ["To compare the means of two independent samples", "To compare the mean of a single sample to a known population mean", "To compare paired samples", "To test the equality of variances in two samples"], a: "To compare the mean of a single sample to a known population mean" },
+{ q: "What assumption about the sample data is crucial for applying the t-test for a single mean with small samples?", o: ["The data must be collected in a short period of time", "The population from which the sample is drawn must be normally distributed", "The sample must contain more than 30 observations", "The data must be at least interval level"], a: "The population from which the sample is drawn must be normally distributed" },
+{ q: "What indicates a significant result in a t-test for a single small sample mean?", o: ["A large p-value (greater than α)", "A small p-value (less than or equal to α)", "A large sample size", "A small standard deviation"], a: "A small p-value (less than or equal to α)" },
+{ q: "What is the impact of outliers in small sample hypothesis testing?", o: ["Outliers have no effect on hypothesis tests", "Outliers can significantly impact the test statistic and p-values, potentially leading to misleading conclusions", "Outliers increase the power of the hypothesis test", "Outliers are necessary for the validity of the t-test"], a: "Outliers can significantly impact the test statistic and p-values, potentially leading to misleading conclusions" },
+{ q: "Why is the t-distribution used in hypothesis testing for small samples instead of the normal distribution?", o: ["Because it accounts for the increased variability in estimates from small samples", "Because small samples always follow a t-distribution", "Because it allows for larger sample sizes", "Because it does not assume normality of the data"], a: "Because it accounts for the increased variability in estimates from small samples" },
+{ q: "In a t-test for comparing two small independent samples, what assumption is made about the variances of the two populations?", o: ["They are known", "They are different", "They are equal", "They are not required"], a: "They are equal" },
+{ q: "When conducting a t-test for the difference between two means with small samples, if the assumption of equal variances is violated, what alternative approach should be used?", o: ["Paired t-test", "Chi-square test", "Welch’s t-test", "Mann-Whitney U test"], a: "Welch’s t-test" },
+{ q: "In hypothesis testing with small samples, what role does the significance level (α) play?", o: ["It determines the sample size needed for the test", "It defines the threshold for rejecting the null hypothesis", "It calculates the test statistic directly", "It measures the effect size of the test"], a: "It defines the threshold for rejecting the null hypothesis" },
+{ q: "What does the degrees of freedom (df) for a t-test with a small sample size depend on?", o: ["The significance level (α)", "The sample size (n)", "The population standard deviation (σ)", "The number of tails in the test (one-tailed or two-tailed)"], a: "The sample size (n)" },
+{ q: "Which of the following is a key assumption for applying the t-test for a single mean with small samples?", o: ["The population variance is known", "The population is normally distributed", "The sample size is greater than 30", "The data are categorical"], a: "The population is normally distributed" },
+{ q: "What distribution is typically used in hypothesis testing for small samples when estimating a population mean?", o: ["Normal distribution", "Chi-square distribution", "t-Distribution", "F-Distribution"], a: "t-Distribution" },
+{ q: "Which of the following scenarios is most appropriate for conducting a paired t-test?", o: ["Comparing the means of two independent samples", "Comparing the mean of a sample to a known population mean", "Comparing the means of two related samples or matched pairs", "Testing the proportion of success in a single sample"], a: "Comparing the means of two related samples or matched pairs" },
+{ q: "How does the interpretation of a one-tailed t-test differ from a two-tailed t-test?", o: ["A one-tailed test can only reject the null hypothesis", "A one-tailed test specifies the direction of the effect, while a two-tailed test does not", "A one-tailed test uses the normal distribution", "There is no difference in interpretation between the two tests"], a: "A one-tailed test specifies the direction of the effect, while a two-tailed test does not" },
+{ q: "Which of the following best describes the purpose of Welch’s t-test?", o: ["To compare means from large samples", "To test the mean against a known standard", "To compare means from two samples with unequal variances", "To compare the proportion of successes in two samples"], a: "To compare means from two samples with unequal variances" },
+{ q: "A t-test for a single mean with a small sample has a calculated t-value greater than the critical t-value. What does this indicate?", o: ["The null hypothesis is confirmed", "There is no significant difference", "There is a significant difference between the sample mean and the population mean", "The sample size is too small"], a: "There is a significant difference between the sample mean and the population mean" },
+{ q: "For a two-tailed t-test with a small sample, if the calculated t-value is within the critical region, what is the appropriate action?", o: ["Accept the null hypothesis", "Reject the null hypothesis", "Increase the sample size and retest", "Convert the test to a one-tailed test"], a: "Reject the null hypothesis" },
+
+
+
+{ q: "A regression model with multiple independent variables is called:", o: ["Simple linear regression", "Polynomial regression", "Multiple linear regression", "Logistic regression"], a: "Multiple linear regression" },
+{ q: "What does an r2 value of 0.09 indicate in a regression analysis?", o: ["9% of the variance in Y is explained by X", "9% of the variance in X is explained by Y", "There is a 9% error in the regression model", "The regression model is 91% accurate"], a: "9% of the variance in Y is explained by X" },
+{ q: "Which of the following is a method for finding the best-fitting line in simple linear regression?", o: ["Least squares method", "Maximum likelihood estimation", "Bayesian estimation", "Gradient descent"], a: "Least squares method" },
+{ q: "How is the effect of an independent variable on a dependent variable measured in regression analysis?", o: ["Through the correlation coefficient", "By calculating the mean of the dependent variable", "Using the regression coefficients", "By the standard deviation of the independent variable"], a: "Using the regression coefficients" },
+{ q: "In simple linear regression, if the correlation coefficient (r) is 0, what is the slope (β1) of the regression line?", o: ["0", "1", "It cannot be determined from r alone", "-1"], a: "0" },
+{ q: "A high leverage point in a regression analysis is:", o: ["An observation with a large residual", "An observation that fits perfectly on the regression line", "An observation with extreme values on the independent variable(s)", "An observation that significantly changes the slope"], a: "An observation with extreme values on the independent variable(s)" },
+{ q: "Which of the following is true about the relationship between correlation and causation?", o: ["Correlation always implies causation", "Correlation never implies causation", "Correlation may suggest a relationship, but it does not prove causation", "Correlation and causation are statistically the same"], a: "Correlation may suggest a relationship, but it does not prove causation" },
+{ q: "In simple linear regression, what does the slope (β1) represent?", o: ["The change in Y for a one-unit decrease in X", "The change in Y for a one-unit increase in X", "The predicted value of Y when X is 0", "The variance of X explained by Y"], a: "The change in Y for a one-unit increase in X" },
+{ q: "What does multicollinearity refer to in the context of regression analysis?", o: ["When the dependent variable changes in direct proportion to X", "When two or more predictors in the model are correlated, making it hard to distinguish their individual effects", "The condition where the regression model perfectly fits all the data points", "A scenario where increasing X decreases the effect of another X"], a: "When two or more predictors in the model are correlated, making it hard to distinguish their individual effects" },
+{ q: "What does a correlation coefficient of -1 indicate?", o: ["Perfect positive linear relationship", "Perfect negative linear relationship", "No linear relationship", "The variables are unrelated"], a: "Perfect negative linear relationship" },
+
+{ q: "Which of the following indicates the strongest linear relationship between two variables?", o: ["r = -0.8", "r = 0.5", "r = 0.2", "r = -0.1"], a: "r = -0.8" },
+{ q: "The Pearson correlation coefficient measures:", o: ["The strength of a non-linear relationship", "The strength and direction of a linear relationship between two variables", "The causality between two variables", "The variance shared by two variables"], a: "The strength and direction of a linear relationship between two variables" },
+{ q: "Which type of analysis is used to examine the relationship between two quantitative variables?", o: ["Univariate Analysis", "Bivariate Analysis", "Multivariate Analysis", "Categorical Analysis"], a: "Bivariate Analysis" },
+{ q: "In regression analysis, what do residuals represent?", o: ["Predicted values of the dependent variable", "Differences between observed and predicted values of the dependent variable", "The slope of the regression line", "The intercept of the regression line"], a: "Differences between observed and predicted values of the dependent variable" },
+{ q: "If a regression analysis results in a slope coefficient significantly greater than 0, it suggests that:", o: ["There is no relationship", "As the independent variable increases, the dependent variable decreases", "As the independent variable increases, the dependent variable increases", "The independent variable has no effect"], a: "As the independent variable increases, the dependent variable increases" },
+{ q: "Which assumption is not required for Pearson’s correlation coefficient?", o: ["Linearity", "Homoscedasticity", "Independence of observations", "Normal distribution of both variables"], a: "Normal distribution of both variables" },
+{ q: "In the context of linear regression, what does a non-zero slope (β1) suggest about the relationship?", o: ["The independent variable has no impact", "The model perfectly predicts the dependent variable", "There is a linear relationship between the independent and dependent variables", "The dependent variable remains constant"], a: "There is a linear relationship between the independent and dependent variables" },
+{ q: "A scatter plot showing a collection of points that are spread out from lower left to upper right suggests:", o: ["A strong negative correlation", "A strong positive correlation", "No correlation", "A weak positive correlation"], a: "A strong positive correlation" },
+{ q: "In regression analysis, the residual is:", o: ["The difference between the observed and predicted values of Y", "The slope of the regression line", "The intercept of the regression line", "The predicted value of Y"], a: "The difference between the observed and predicted values of Y" },
+{ q: "What is the main purpose of using a scatter plot?", o: ["To visualize the distribution of a single variable", "To compare means of different groups", "To visualize the relationship between two quantitative variables", "To plot the residuals of a regression mode"], a: "To visualize the relationship between two quantitative variables" },
+
+
+{ q: "Which of the following best describes consistency in the context of estimators?", o: ["The estimator's ability to produce estimates closer to the true parameter value as the sample size increases", "The estimator producing the same value regardless of the sample size.", "The estimator's variance decreasing as the sample size increases.", "The estimator having zero bias for any sample size"], a: "The estimator's ability to produce estimates closer to the true parameter value as the sample size increases" }
+
+
+
+]
+
+    let questions = [];
+let current = 0;
+let answers = [];
+let timeLeft = 0;
+let isReviewMode = false;
+let timerInt;
+
+document.getElementById("poolSize").innerText = QUESTION_POOL.length;
+
+/* --- FUNCTIONS --- */
+function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+function startExam() {
+    let qty = parseInt(document.getElementById("userQty").value);
+    let mins = parseInt(document.getElementById("userTime").value);
+
+    // Hard Validation Logic
+    if (isNaN(qty) || qty < 1) qty = 1;
+    if (qty > MAX_QS) qty = MAX_QS;
+    if (qty > QUESTION_POOL.length) qty = QUESTION_POOL.length;
+
+    if (isNaN(mins) || mins < 1) mins = 1;
+    if (mins > MAX_TIME) mins = MAX_TIME;
+
+    // Apply limits back to UI for transparency
+    document.getElementById("userQty").value = qty;
+    document.getElementById("userTime").value = mins;
+
+    // Initialize
+    questions = shuffle([...QUESTION_POOL]).slice(0, qty);
+    timeLeft = mins * 60;
+    answers = new Array(qty).fill(null);
+    current = 0;
+    isReviewMode = false;
+
+    document.getElementById("setupScreen").style.display = "none";
+    document.getElementById("examArea").style.display = "block";
+    
+    createPalette(qty);
+    loadQuestion();
+    startTimer();
+}
+
+function startTimer() {
+    clearInterval(timerInt);
+    timerInt = setInterval(() => {
+        if (isReviewMode) return;
+        timeLeft--;
+        const m = Math.floor(timeLeft / 60);
+        const s = timeLeft % 60;
+        document.getElementById("timer").innerText = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+        if (timeLeft <= 0) {
+            clearInterval(timerInt);
+            submitExam(true); // Auto-submit when time is up
+        }
+    }, 1000);
+}
+
+function createPalette(qty) {
+    const p = document.getElementById("palette");
+    p.innerHTML = "";
+    for (let i = 0; i < qty; i++) {
+        const btn = document.createElement("button");
+        btn.innerText = i + 1;
+        btn.onclick = () => { current = i; loadQuestion(); };
+        p.appendChild(btn);
+    }
+}
+
+function loadQuestion() {
+    const q = questions[current];
+    let html = `<div class="question"><h3>Q${current + 1}. ${q.q}</h3>`;
+    
+    q.o.forEach(opt => {
+        let cls = "option";
+        if (isReviewMode) {
+            if (opt === q.a) cls += " correct";
+            else if (answers[current] === opt) cls += " wrong";
+        } else {
+            if (answers[current] === opt) cls += " selected";
+        }
+        const action = isReviewMode ? "" : `onclick="selectAnswer('${opt.replace(/'/g, "\\'")}')"`;
+        html += `<div class="${cls}" ${action}>${opt}</div>`;
+    });
+    
+    document.getElementById("questionBox").innerHTML = html;
+    updatePalette();
+}
+
+function selectAnswer(opt) {
+    answers[current] = opt;
+    loadQuestion();
+}
+
+function nextQ() { if (current < questions.length - 1) { current++; loadQuestion(); } }
+function prevQ() { if (current > 0) { current--; loadQuestion(); } }
+
+function updatePalette() {
+    const btns = document.querySelectorAll(".palette button");
+    btns.forEach((b, i) => {
+        b.classList.remove("current", "palette-correct", "palette-wrong");
+        if (isReviewMode) {
+            if (answers[i] === questions[i].a) b.classList.add("palette-correct");
+            else b.classList.add("palette-wrong");
+        }
+        if (i === current) b.classList.add("current");
+    });
+}
+
+function submitExam(force = false) {
+    if (!force && !confirm("Submit your exam?")) return;
+    
+    isReviewMode = true;
+    clearInterval(timerInt);
+    
+    let score = 0;
+    questions.forEach((q, i) => { if (answers[i] === q.a) score++; });
+
+    document.getElementById("timer").style.display = "none";
+    document.getElementById("submitBtn").style.display = "none";
+    document.getElementById("resultBanner").style.display = "block";
+    document.getElementById("scoreDisplay").innerText = `Final Score: ${score} / ${questions.length}`;
+    document.getElementById("percentDisplay").innerText = `${((score/questions.length)*100).toFixed(1)}%`;
+    
+    current = 0;
+    loadQuestion();
+}
+</script>
+</body>
+</html>
